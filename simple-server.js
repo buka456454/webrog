@@ -150,17 +150,14 @@ function checkObstacleCollision(x, y, playerRadius = 15) {
 function findValidSpawnPosition() {
   let attempts = 0;
   const maxAttempts = 100;
-  
   while (attempts < maxAttempts) {
     const x = Math.random() * (MAP_WIDTH - 100) + 50;
     const y = Math.random() * (MAP_HEIGHT - 100) + 50;
-    
     if (!checkObstacleCollision(x, y)) {
       return { x, y };
     }
     attempts++;
   }
-  
   return { x: 100, y: 100 };
 }
 
@@ -302,12 +299,25 @@ io.on('connection', (socket) => {
     gameState.players.set(socket.id, player);
     gameState.usedNicknames.add(trimmedNickname);
 
+    // Только вошедшему игроку — его yourId
     socket.emit('gameState', {
       players: Array.from(gameState.players.values()).map(p => ({
         ...p,
         speed: calculatePlayerSpeed(p)
       })),
       yourId: socket.id,
+      obstacles: gameState.obstacles,
+      weapons: Array.from(gameState.weapons.values()),
+      mapWidth: gameState.mapWidth,
+      mapHeight: gameState.mapHeight
+    });
+    // Всем остальным — без yourId
+    socket.broadcast.emit('gameState', {
+      players: Array.from(gameState.players.values()).map(p => ({
+        ...p,
+        speed: calculatePlayerSpeed(p)
+      })),
+      yourId: null,
       obstacles: gameState.obstacles,
       weapons: Array.from(gameState.weapons.values()),
       mapWidth: gameState.mapWidth,

@@ -7,65 +7,131 @@
     <style>
         body {
             margin: 0;
-            padding: 20px;
+            padding: 0;
             background: #1a1a1a;
             color: white;
             font-family: 'Inter', sans-serif;
+            overflow: hidden;
         }
         .game-container {
             display: flex;
-            gap: 20px;
-            max-width: 1200px;
-            margin: 0 auto;
+            height: 100vh;
+            width: 100vw;
         }
         .game-area {
             flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
         }
         .sidebar {
-            width: 320px;
+            width: 280px;
+            background: rgba(0, 0, 0, 0.8);
+            border-left: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
         }
         .controls {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
+            position: fixed;
+            top: 32px;
+            left: 32px;
+            background: rgba(24,24,24,0.97);
+            border: 1.5px solid #333;
+            border-radius: 16px;
+            padding: 22px 28px 18px 28px;
+            z-index: 101;
+            min-width: 340px;
+            max-width: 420px;
+            font-size: 16px;
+            line-height: 1.7;
+            box-shadow: 0 8px 32px #000a;
+            color: #fff;
         }
-        .controls h3 {
-            margin: 0 0 10px 0;
-            color: #0070f3;
+        .controls-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
         }
-        .controls p {
-            margin: 5px 0;
-            font-size: 14px;
-            color: #ccc;
+        .controls-title {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #3fa7ff;
+        }
+        .controls-close {
+            font-size: 22px;
+            color: #aaa;
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+        }
+        .controls-close:hover {
+            color: #ff4444;
+        }
+        .controls-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .controls-list li {
+            margin: 10px 0 0 0;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         canvas {
             border: 2px solid #333;
             border-radius: 8px;
             background: #0a0a0a;
+            /* Размер управляется JavaScript */
+            max-width: none !important;
+            max-height: none !important;
+            object-fit: none !important;
+        }
+        
+        .game-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            justify-content: center;
+            align-items: center;
+            min-height: 0;
+            position: relative;
+        }
+        
+        #gameCanvas {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
         .minimap {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #333;
             border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
+            padding: 10px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
         }
         .chat {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #333;
             border-radius: 8px;
-            padding: 15px;
+            padding: 10px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
         }
         .chat-messages {
-            height: 200px;
+            flex: 1;
             overflow-y: auto;
             background: #111827;
             border: 1px solid #4b5563;
             border-radius: 8px;
             padding: 10px;
             margin-bottom: 10px;
+            min-height: 150px;
         }
         .chat-input {
             display: flex;
@@ -223,8 +289,9 @@
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #333;
             border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
+            padding: 10px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
         }
         
         .leaderboard h3 {
@@ -233,7 +300,7 @@
         }
         
         .leaderboard-list {
-            max-height: 200px;
+            max-height: 150px;
             overflow-y: auto;
         }
         
@@ -271,6 +338,116 @@
             border-radius: 50%;
             margin-right: 8px;
         }
+        
+        /* Адаптивность для маленьких экранов */
+        @media (max-width: 1200px) {
+            .sidebar {
+                width: 240px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .game-container {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                height: 200px;
+                flex-direction: row;
+                overflow-x: auto;
+            }
+            .minimap, .leaderboard, .chat {
+                min-width: 200px;
+                margin-right: 10px;
+            }
+            .controls {
+                max-width: 250px;
+            }
+            /* На мобильных устройствах размер canvas управляется JavaScript */
+        }
+        .rules-btn {
+          position: fixed;
+          top: 32px;
+          left: 32px;
+          z-index: 2000;
+          background: #23272f;
+          color: #3fa7ff;
+          border: none;
+          border-radius: 10px;
+          padding: 12px 22px;
+          font-size: 18px;
+          font-weight: 600;
+          cursor: pointer;
+          box-shadow: 0 2px 8px #0005;
+          transition: background 0.2s, color 0.2s;
+        }
+        .rules-btn:hover {
+          background: #3fa7ff;
+          color: #fff;
+        }
+        .rules-modal {
+          position: fixed;
+          top: 0; left: 0; width: 100vw; height: 100vh;
+          z-index: 3000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .rules-modal-backdrop {
+          position: absolute;
+          top: 0; left: 0; width: 100vw; height: 100vh;
+          background: rgba(0,0,0,0.65);
+          z-index: 1;
+        }
+        .rules-modal-content {
+          position: relative;
+          z-index: 2;
+          background: #181a20;
+          border-radius: 18px;
+          box-shadow: 0 8px 32px #000a;
+          min-width: 340px;
+          max-width: 95vw;
+          padding: 32px 36px 28px 36px;
+          animation: rules-modal-in 0.22s cubic-bezier(.4,2,.6,1);
+        }
+        @keyframes rules-modal-in {
+          from { opacity: 0; transform: scale(0.95); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+        .rules-modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 18px;
+        }
+        .rules-modal-title {
+          font-size: 22px;
+          font-weight: 700;
+          color: #3fa7ff;
+        }
+        .rules-modal-close {
+          font-size: 26px;
+          color: #aaa;
+          cursor: pointer;
+          user-select: none;
+          transition: color 0.2s;
+        }
+        .rules-modal-close:hover {
+          color: #ff4444;
+        }
+        .rules-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+        }
+        .rules-list li {
+          margin: 12px 0 0 0;
+          font-size: 17px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          color: #e0e0e0;
+        }
     </style>
 </head>
 <body>
@@ -295,18 +472,29 @@
     </div>
 
     <div class="game-container" id="gameContainer" style="display: none;">
-        <div class="game-area">
-            <div class="controls">
-                <h3>🎮 WebRog Multiplayer Game</h3>
-                <p>⌨️ Use WASD keys to move your character</p>
-                <p>⚡ Press SHIFT to dash towards mouse cursor</p>
-                <p>⚔️ Press E to pick up weapons</p>
-                <p>🗑️ Press Q to drop weapon</p>
-                <p>🗡️ Press LEFT CLICK to attack with weapon</p>
-                <p>💬 Use the chat to communicate with other players</p>
-                <p>👥 <span id="playerCount">0</span> player(s) online</p>
+        <!-- Кнопка для открытия модалки с правилами -->
+        <button class="rules-btn" id="rulesBtn" onclick="openRulesModal()">📖 Правила</button>
+        <!-- Модалка с правилами -->
+        <div class="rules-modal" id="rulesModal" style="display:none;">
+          <div class="rules-modal-backdrop" onclick="closeRulesModal(event)"></div>
+          <div class="rules-modal-content">
+            <div class="rules-modal-header">
+              <span class="rules-modal-title">📖 Правила игры</span>
+              <span class="rules-modal-close" onclick="closeRulesModal(event)">✕</span>
             </div>
-            <canvas id="gameCanvas" width="800" height="600"></canvas>
+            <ul class="rules-list">
+              <li>⌨️ Используй WASD для движения</li>
+              <li>⚡ SHIFT — рывок к курсору</li>
+              <li>⚔️ E — подобрать оружие</li>
+              <li>🗑️ Q — выбросить оружие</li>
+              <li>🗡️ ЛКМ — атака</li>
+              <li>💬 Чат для общения</li>
+              <li>👥 <span id="playerCount">0</span> игроков онлайн</li>
+            </ul>
+          </div>
+        </div>
+        <div class="game-area" style="width:100%;height:100%;display:flex;justify-content:center;align-items:center;">
+            <canvas id="gameCanvas"></canvas>
         </div>
         
         <div class="sidebar">
@@ -337,6 +525,42 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
+        // Синхронизация размеров canvas с DOM
+        function resizeGameCanvas() {
+            const container = document.querySelector('.game-area');
+            if (!container) return;
+            
+            // Определяем размер canvas в зависимости от размера экрана
+            let canvasWidth, canvasHeight;
+            
+            if (window.innerWidth <= 768) {
+                // Мобильные устройства
+                canvasWidth = 800;
+                canvasHeight = 600;
+            } else {
+                // Десктоп
+                canvasWidth = 1200;
+                canvasHeight = 800;
+            }
+            
+            // Устанавливаем размер canvas
+            gameCanvas.width = canvasWidth;
+            gameCanvas.height = canvasHeight;
+            
+            // Устанавливаем CSS размер для отображения
+            gameCanvas.style.width = canvasWidth + 'px';
+            gameCanvas.style.height = canvasHeight + 'px';
+        }
+        window.addEventListener('resize', resizeGameCanvas);
+        document.addEventListener('DOMContentLoaded', resizeGameCanvas);
+        
+        // Также вызываем resizeGameCanvas при загрузке страницы
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', resizeGameCanvas);
+        } else {
+            resizeGameCanvas();
+        }
+        
         // Глобальные функции для возрождения
         function respawnPlayer() {
             console.log('Кнопка возрождения нажата');
@@ -550,7 +774,7 @@
 
         // --- ОТКРЫТИЕ НАСТРОЕК ПО СЛОВУ ---
         chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+            if (e.code === 'Enter') {
                 if (chatInput.value.trim().toLowerCase() === 'писюн') {
                     openSettingsModal();
                     chatInput.value = '';
@@ -567,6 +791,10 @@
             // ... существующий код ...
             weapons.forEach(w => { w.cooldown = getWeaponCooldown(w.type); applySettingsToWeapon(w); });
             // ... существующий код ...
+            players = data.players || [];
+            if (data.yourId !== null && data.yourId !== undefined) {
+                currentPlayerId = data.yourId;
+            }
         });
         socket.on('weaponSpawned', (weapon) => {
             applySettingsToWeapon(weapon);
@@ -597,7 +825,9 @@
             
             socket.on('gameState', (data) => {
                 players = data.players || [];
-                currentPlayerId = data.yourId;
+                if (data.yourId !== null && data.yourId !== undefined) {
+                    currentPlayerId = data.yourId;
+                }
                 obstacles = data.obstacles || [];
                 weapons = data.weapons || [];
                 mapWidth = data.mapWidth || 2000;
@@ -808,12 +1038,15 @@
         }
         
         function startGame() {
+            // Инициализируем размер canvas
+            resizeGameCanvas();
+            
             // Keyboard events
             document.addEventListener('keydown', (e) => {
-                keys[e.key.toLowerCase()] = true;
+                keys[e.code.toLowerCase()] = true;
                 
                 // Рывок по Shift
-                if (e.key === 'Shift' && !dashCooldown && !isDashing) {
+                if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !dashCooldown && !isDashing) {
                     const currentPlayer = players.find(p => p.id === currentPlayerId);
                     if (currentPlayer && !currentPlayer.isDead) {
                         // Вычисляем направление рывка (к курсору мыши)
@@ -852,7 +1085,7 @@
                 }
                 
                 // Weapon pickup
-                if (e.key === 'e' || e.key === 'E') {
+                if (e.code === 'KeyE') {
                     const currentPlayer = players.find(p => p.id === currentPlayerId);
                     if (currentPlayer && !currentPlayer.isDead) {
                         weapons.forEach(weapon => {
@@ -867,7 +1100,7 @@
                 }
                 
                 // Weapon drop
-                if (e.key === 'q' || e.key === 'Q') {
+                if (e.code === 'KeyQ') {
                     const currentPlayer = players.find(p => p.id === currentPlayerId);
                     if (currentPlayer && currentPlayer.weapon && !currentPlayer.isDead) {
                         socket.emit('dropWeapon');
@@ -876,7 +1109,7 @@
             });
             
             document.addEventListener('keyup', (e) => {
-                keys[e.key.toLowerCase()] = false;
+                keys[e.code.toLowerCase()] = false;
             });
             
             // Mouse events
@@ -919,7 +1152,7 @@
             
             // Chat input
             chatInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
+                if (e.code === 'Enter') {
                     sendMessage();
                 }
             });
@@ -963,19 +1196,19 @@
                 }
             } else {
                 // Обычное движение
-                if (keys['w'] || keys['arrowup']) {
+                if (keys['keyw'] || keys['arrowup']) {
                     newY -= moveSpeed;
                     moved = true;
                 }
-                if (keys['s'] || keys['arrowdown']) {
+                if (keys['keys'] || keys['arrowdown']) {
                     newY += moveSpeed;
                     moved = true;
                 }
-                if (keys['a'] || keys['arrowleft']) {
+                if (keys['keya'] || keys['arrowleft']) {
                     newX -= moveSpeed;
                     moved = true;
                 }
-                if (keys['d'] || keys['arrowright']) {
+                if (keys['keyd'] || keys['arrowright']) {
                     newX += moveSpeed;
                     moved = true;
                 }
@@ -1023,35 +1256,38 @@
         }
         
         function renderGame() {
+            // Получаем реальные размеры canvas
+            const canvasWidth = gameCanvas.width;
+            const canvasHeight = gameCanvas.height;
             // Найти текущего игрока
             const currentPlayer = players.find(p => p.id === currentPlayerId);
             // Куда хотим камеру
             if (currentPlayer) {
-                camTargetX = currentPlayer.x - 400;
-                camTargetY = currentPlayer.y - 300;
-                camTargetX = Math.max(0, Math.min(camTargetX, mapWidth - 800));
-                camTargetY = Math.max(0, Math.min(camTargetY, mapHeight - 600));
+                camTargetX = currentPlayer.x - canvasWidth / 2;
+                camTargetY = currentPlayer.y - canvasHeight / 2;
+                camTargetX = Math.max(0, Math.min(camTargetX, mapWidth - canvasWidth));
+                camTargetY = Math.max(0, Math.min(camTargetY, mapHeight - canvasHeight));
             }
             // Плавное движение камеры
             camX += (camTargetX - camX) * camSmooth;
             camY += (camTargetY - camY) * camSmooth;
             // Очистить канвас
-            gameCtx.clearRect(0, 0, 800, 600);
+            gameCtx.clearRect(0, 0, canvasWidth, canvasHeight);
             gameCtx.fillStyle = '#0a0a0a';
-            gameCtx.fillRect(0, 0, 800, 600);
+            gameCtx.fillRect(0, 0, canvasWidth, canvasHeight);
             // Сетка
             gameCtx.strokeStyle = '#222';
             gameCtx.lineWidth = 1;
-            for (let x = 0; x <= 800; x += 40) {
+            for (let x = 0; x <= canvasWidth; x += 40) {
                 gameCtx.beginPath();
                 gameCtx.moveTo(x, 0);
-                gameCtx.lineTo(x, 600);
+                gameCtx.lineTo(x, canvasHeight);
                 gameCtx.stroke();
             }
-            for (let y = 0; y <= 600; y += 40) {
+            for (let y = 0; y <= canvasHeight; y += 40) {
                 gameCtx.beginPath();
                 gameCtx.moveTo(0, y);
-                gameCtx.lineTo(800, y);
+                gameCtx.lineTo(canvasWidth, y);
                 gameCtx.stroke();
             }
             // Радиусы удара (на заднем плане)
@@ -1265,8 +1501,8 @@
                 }
                 // Fade для имени (имя появляется плавно, если игрок на экране)
                 let nameAlpha = 1.0;
-                if (px < 0 || px > 800 || py < 0 || py > 600) nameAlpha = 0;
-                else if (px < 40 || px > 760 || py < 30 || py > 570) nameAlpha = 0.3;
+                if (px < 0 || px > canvasWidth || py < 0 || py > canvasHeight) nameAlpha = 0;
+                else if (px < 40 || px > canvasWidth - 40 || py < 30 || py > canvasHeight - 30) nameAlpha = 0.3;
                 gameCtx.save();
                 gameCtx.globalAlpha = nameAlpha;
                 if (player.isDead) {
@@ -1509,13 +1745,15 @@
         }
         
         function renderInventory() {
+            const canvasWidth = gameCanvas.width;
+            const canvasHeight = gameCanvas.height;
             const currentPlayer = players.find(p => p.id === currentPlayerId);
             if (!currentPlayer) return;
             
             // Если игрок мертв, показываем сообщение о смерти
             if (currentPlayer.isDead) {
-                const invX = 800 - 80;
-                const invY = 600 - 80;
+                const invX = canvasWidth - 80;
+                const invY = canvasHeight - 80;
                 gameCtx.save();
                 gameCtx.globalAlpha = 0.7;
                 gameCtx.fillStyle = '#222';
@@ -1529,8 +1767,8 @@
                 return;
             }
             // Координаты инвентаря (правый нижний угол)
-            const invX = 800 - 80;
-            const invY = 600 - 80;
+            const invX = canvasWidth - 80;
+            const invY = canvasHeight - 80;
             gameCtx.clearRect(invX, invY, 64, 64);
             gameCtx.save();
             // Фон инвентаря
@@ -1683,7 +1921,7 @@
         
         // Allow Enter key to join game
         nicknameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+            if (e.code === 'Enter') {
                 joinGame();
             }
         });
@@ -1693,7 +1931,18 @@
         window.showRespawnModal = showRespawnModal;
         window.hideRespawnModal = hideRespawnModal;
         
+        // После показа gameContainer, тоже resize
+        gameContainer.style.display = '';
 
+        function openRulesModal() {
+          document.getElementById('rulesModal').style.display = 'flex';
+        }
+        function closeRulesModal(e) {
+          // Закрывать только если клик по фону или по ✕
+          if (!e || e.target.classList.contains('rules-modal-backdrop') || e.target.classList.contains('rules-modal-close')) {
+            document.getElementById('rulesModal').style.display = 'none';
+          }
+        }
     </script>
 </body>
 </html> 
