@@ -173,8 +173,9 @@ class Weapon {
     this.type = 'sword';
     this.name = 'Меч';
     this.durability = 3;
-    this.damage = 2;
+    this.damage = 3;
     this.range = 80;
+    this.weight = 2; // Вес оружия влияет на скорость
   }
   toJSON() {
     // Для сериализации только нужных полей
@@ -186,7 +187,8 @@ class Weapon {
       name: this.name,
       durability: this.durability,
       damage: this.damage,
-      range: this.range
+      range: this.range,
+      weight: this.weight
     };
   }
 }
@@ -197,8 +199,9 @@ class Knife extends Weapon {
     this.type = 'knife';
     this.name = 'Нож';
     this.durability = 2;
-    this.damage = 1;
-    this.range = 50;
+    this.damage = 2;
+    this.range = 60;
+    this.weight = 1; // Легкий нож
   }
 }
 
@@ -208,8 +211,9 @@ class GreatSword extends Weapon {
     this.type = 'greatsword';
     this.name = 'Двуручный меч';
     this.durability = 5;
-    this.damage = 4;
+    this.damage = 5;
     this.range = 110;
+    this.weight = 6; // Очень тяжелый двуручный меч
   }
 }
 
@@ -230,6 +234,14 @@ function spawnWeapon() {
 
 // Интервал спавна оружия
 setInterval(spawnWeapon, gameState.weaponSpawnInterval);
+
+// Функция для расчета скорости игрока на основе веса оружия
+function calculatePlayerSpeed(player) {
+  const baseSpeed = 2; // Базовая скорость
+  const weaponWeight = player.weapon ? player.weapon.weight : 0;
+  const speedModifier = Math.max(0.5, 1 - (weaponWeight * 0.15)); // Каждый вес снижает скорость на 15%, минимум 50%
+  return baseSpeed * speedModifier;
+}
 
 // Функция для получения топа по киллам
 function getKillsLeaderboard() {
@@ -291,7 +303,10 @@ io.on('connection', (socket) => {
     gameState.usedNicknames.add(trimmedNickname);
 
     socket.emit('gameState', {
-      players: Array.from(gameState.players.values()),
+      players: Array.from(gameState.players.values()).map(p => ({
+        ...p,
+        speed: calculatePlayerSpeed(p)
+      })),
       yourId: socket.id,
       obstacles: gameState.obstacles,
       weapons: Array.from(gameState.weapons.values()),
@@ -309,7 +324,10 @@ io.on('connection', (socket) => {
       weapons: Array.from(gameState.weapons.values()).map(w => ({ id: w.id, x: w.x, y: w.y }))
     });
 
-    socket.broadcast.emit('playerJoined', player);
+    socket.broadcast.emit('playerJoined', {
+      ...player,
+      speed: calculatePlayerSpeed(player)
+    });
   });
 
   socket.on('playerMove', (data) => {
@@ -318,11 +336,27 @@ io.on('connection', (socket) => {
       const newX = Math.max(20, Math.min(MAP_WIDTH - 20, data.x));
       const newY = Math.max(20, Math.min(MAP_HEIGHT - 20, data.y));
       
-      if (!checkObstacleCollision(newX, newY)) {
+      // Проверяем, не слишком ли далеко игрок переместился (античит для рывка)
+      const distance = Math.sqrt(
+        Math.pow(player.x - newX, 2) + Math.pow(player.y - newY, 2)
+      );
+      
+      // Максимальная дистанция за один тик с учетом веса оружия
+      const playerSpeed = calculatePlayerSpeed(player);
+      const maxDistance = Math.max(5, playerSpeed * 7.5); // Учитываем скорость игрока
+      
+      if (distance <= maxDistance && !checkObstacleCollision(newX, newY)) {
         player.x = newX;
         player.y = newY;
         player.lastActivity = Date.now();
         
+        io.emit('playerMoved', {
+          id: socket.id,
+          x: player.x,
+          y: player.y
+        });
+      } else {
+        // Если движение невалидно, возвращаем игрока на предыдущую позицию
         io.emit('playerMoved', {
           id: socket.id,
           x: player.x,
@@ -345,6 +379,20 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('playerDash', (data) => {
+    const player = gameState.players.get(socket.id);
+    if (player && !player.isDead) {
+      // Уведомляем всех о рывке игрока
+      io.emit('playerDashed', {
+        id: socket.id,
+        x: data.x,
+        y: data.y,
+        targetX: data.targetX,
+        targetY: data.targetY
+      });
+    }
+  });
+
   socket.on('chatMessage', (message) => {
     const player = gameState.players.get(socket.id);
     if (player) {
@@ -363,6 +411,12 @@ io.on('connection', (socket) => {
     console.log('Pickup attempt:', { playerId: socket.id, weaponId, player: player?.name, weapon: weapon?.type });
     
     if (player && weapon && !player.isDead) {
+      // Проверяем, есть ли уже оружие в руках
+      if (player.weapon) {
+        console.log('Cannot pick up weapon: player already has weapon');
+        return;
+      }
+      
       const distance = Math.sqrt(
         Math.pow(player.x - weapon.x, 2) + Math.pow(player.y - weapon.y, 2)
       );
@@ -370,7 +424,7 @@ io.on('connection', (socket) => {
       console.log('Distance to weapon:', distance, 'Player at:', player.x, player.y, 'Weapon at:', weapon.x, weapon.y);
       
       if (distance < 50) { // Увеличил радиус подбора
-        console.log('Weapon picked up by:', player.name);
+        console.log('Weapon picked up by:', player.name, 'Type:', weapon.type, 'Durability:', weapon.durability);
         player.weapon = weapon.toJSON();
         player.lastActivity = Date.now();
         gameState.weapons.delete(weaponId);
@@ -387,7 +441,8 @@ io.on('connection', (socket) => {
           health: player.health,
           maxHealth: player.maxHealth,
           isDead: player.isDead,
-          weapon: player.weapon
+          weapon: player.weapon,
+          speed: calculatePlayerSpeed(player)
         };
         io.emit('weaponPickedUp', {
           playerId: socket.id,
@@ -399,12 +454,23 @@ io.on('connection', (socket) => {
           player: playerWithWeapon
         });
 
-        // Если оружие сломалось, убираем его и отправляем событие
-        if (!player.weapon || player.weapon.durability <= 0) {
+        // Проверяем, не сломано ли оружие при подборе (должно быть невозможно, но на всякий случай)
+        if (player.weapon && player.weapon.durability <= 0) {
           delete player.weapon;
+          const playerWithoutWeapon = {
+            id: player.id,
+            x: player.x,
+            y: player.y,
+            color: player.color,
+            name: player.name,
+            rotation: player.rotation,
+            health: player.health,
+            maxHealth: player.maxHealth,
+            isDead: player.isDead
+          };
           io.emit('weaponBroken', {
             playerId: socket.id,
-            player: playerWithWeapon
+            player: playerWithoutWeapon
           });
         }
       } else {
@@ -415,17 +481,124 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('weaponAttack', () => {
+  socket.on('dropWeapon', () => {
     const player = gameState.players.get(socket.id);
     
     if (player && player.weapon && !player.isDead) {
+      console.log('Weapon dropped by:', player.name, 'Type:', player.weapon.type);
+      
+      // Создаем новое оружие на карте с текущими характеристиками
+      let droppedWeapon;
+      if (player.weapon.type === 'knife') {
+        droppedWeapon = new Knife(`weapon_${Date.now()}_${Math.random()}`, player.x, player.y);
+      } else if (player.weapon.type === 'greatsword') {
+        droppedWeapon = new GreatSword(`weapon_${Date.now()}_${Math.random()}`, player.x, player.y);
+      } else {
+        droppedWeapon = new Weapon(`weapon_${Date.now()}_${Math.random()}`, player.x, player.y);
+      }
+      
+      // Копируем характеристики с выброшенного оружия
+      droppedWeapon.durability = player.weapon.durability;
+      
+      // Добавляем оружие на карту
+      gameState.weapons.set(droppedWeapon.id, droppedWeapon);
+      
+      // Убираем оружие у игрока
+      delete player.weapon;
       player.lastActivity = Date.now();
       
-      // Уменьшаем прочность оружия
-      player.weapon.durability--;
+      const playerWithoutWeapon = {
+        id: player.id,
+        x: player.x,
+        y: player.y,
+        color: player.color,
+        name: player.name,
+        rotation: player.rotation,
+        health: player.health,
+        maxHealth: player.maxHealth,
+        isDead: player.isDead,
+        speed: calculatePlayerSpeed(player)
+      };
+      
+      // Уведомляем всех о выброшенном оружии
+      io.emit('weaponDropped', {
+        playerId: socket.id,
+        weapon: droppedWeapon.toJSON(),
+        player: playerWithoutWeapon
+      });
+      
+      io.emit('playerUpdated', {
+        playerId: socket.id,
+        player: playerWithoutWeapon
+      });
+      
+      console.log('Weapon dropped successfully:', droppedWeapon.type, 'at', droppedWeapon.x, droppedWeapon.y);
+    } else {
+      console.log('Cannot drop weapon:', { hasPlayer: !!player, hasWeapon: !!player?.weapon, isDead: player?.isDead });
+    }
+  });
+
+  socket.on('playerRespawn', () => {
+    console.log('Получено событие playerRespawn от игрока:', socket.id);
+    const player = gameState.players.get(socket.id);
+    console.log('Игрок найден:', player ? player.name : 'не найден');
+    console.log('Игрок мертв:', player ? player.isDead : 'не найден');
+    
+    if (player && player.isDead) {
+      // Возрождаем игрока
+      const spawnPosition = findValidSpawnPosition();
+      player.x = spawnPosition.x;
+      player.y = spawnPosition.y;
+      player.health = player.maxHealth;
+      player.isDead = false;
+      player.weapon = null; // Убираем оружие при возрождении
+      player.lastActivity = Date.now();
+      
+      const respawnedPlayer = {
+        id: player.id,
+        x: player.x,
+        y: player.y,
+        color: player.color,
+        name: player.name,
+        rotation: player.rotation,
+        health: player.health,
+        maxHealth: player.maxHealth,
+        isDead: player.isDead,
+        weapon: player.weapon,
+        speed: calculatePlayerSpeed(player)
+      };
+      
+      io.emit('playerRespawned', {
+        playerId: socket.id,
+        player: respawnedPlayer
+      });
+      
+      io.emit('playerUpdated', {
+        playerId: socket.id,
+        player: respawnedPlayer
+      });
+      
+      // Обновляем лидерборд после возрождения
+      const leaderboard = getKillsLeaderboard();
+      io.emit('leaderboardUpdate', leaderboard);
+      
+      console.log('Игрок возродился:', player.name, 'в позиции:', spawnPosition);
+      console.log('Отправляем события playerRespawned и playerUpdated');
+    } else {
+      console.log('Игрок не может возродиться:', { hasPlayer: !!player, isDead: player?.isDead });
+    }
+  });
+
+  socket.on('weaponAttack', () => {
+    console.log('Получено событие weaponAttack от игрока:', socket.id);
+    const player = gameState.players.get(socket.id);
+    
+    if (player && player.weapon && !player.isDead) {
+      console.log('Игрок атакует:', player.name, 'Оружие:', player.weapon.type, 'Durability:', player.weapon.durability);
+      player.lastActivity = Date.now();
       
       // Ищем игроков в радиусе атаки
-      const attackRange = 80;
+      const attackRange = player.weapon.range || 80;
       const attackedPlayers = [];
       
       gameState.players.forEach((targetPlayer, targetId) => {
@@ -434,28 +607,65 @@ io.on('connection', (socket) => {
             Math.pow(player.x - targetPlayer.x, 2) + Math.pow(player.y - targetPlayer.y, 2)
           );
           
+          // Проверяем расстояние
           if (distance < attackRange) {
-            const damage = player.weapon.type === 'wooden_sword' ? 2 : 1;
-            targetPlayer.health = Math.max(0, targetPlayer.health - damage);
-            targetPlayer.lastActivity = Date.now();
+            // Проверяем, находится ли цель в секторе атаки (90 градусов перед игроком)
+            const angleToTarget = Math.atan2(targetPlayer.y - player.y, targetPlayer.x - player.x);
+            const playerAngle = player.rotation || 0;
             
-            attackedPlayers.push({
-              id: targetId,
-              damage: damage,
-              newHealth: targetPlayer.health
-            });
+            // Нормализуем углы и приводим к той же системе координат что и на клиенте
+            let angleDiff = angleToTarget - (playerAngle - Math.PI / 2);
+            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
             
-            // Проверяем смерть
-            if (targetPlayer.health <= 0) {
-              targetPlayer.isDead = true;
-              player.kills++; // Увеличиваем счетчик киллов
-              io.emit('playerDied', {
-                playerId: targetId,
-                killerId: socket.id,
-                message: `${player.name} убил ${targetPlayer.name}`,
-                player: targetPlayer,
-                killerKills: player.kills
+            // Проверяем, находится ли цель в секторе ±45 градусов (π/4 радиан)
+            if (Math.abs(angleDiff) <= Math.PI / 4) {
+              const damage = player.weapon.damage || 1;
+              targetPlayer.health = Math.max(0, targetPlayer.health - damage);
+              targetPlayer.lastActivity = Date.now();
+              
+              attackedPlayers.push({
+                id: targetId,
+                damage: damage,
+                newHealth: targetPlayer.health
               });
+              
+              // Отправляем обновление состояния атакованного игрока
+              const targetPlayerUpdated = {
+                id: targetPlayer.id,
+                x: targetPlayer.x,
+                y: targetPlayer.y,
+                color: targetPlayer.color,
+                name: targetPlayer.name,
+                rotation: targetPlayer.rotation,
+                health: targetPlayer.health,
+                maxHealth: targetPlayer.maxHealth,
+                isDead: targetPlayer.isDead,
+                weapon: targetPlayer.weapon,
+                speed: calculatePlayerSpeed(targetPlayer)
+              };
+              
+              io.emit('playerUpdated', {
+                playerId: targetId,
+                player: targetPlayerUpdated
+              });
+              
+              // Проверяем смерть
+              if (targetPlayer.health <= 0) {
+                targetPlayer.isDead = true;
+                player.kills++; // Увеличиваем счетчик киллов
+                io.emit('playerDied', {
+                  playerId: targetId,
+                  killerId: socket.id,
+                  message: `${player.name} убил ${targetPlayer.name}`,
+                  player: targetPlayer,
+                  killerKills: player.kills
+                });
+                
+                // Обновляем лидерборд после убийства
+                const leaderboard = getKillsLeaderboard();
+                io.emit('leaderboardUpdate', leaderboard);
+              }
             }
           }
         }
@@ -467,47 +677,75 @@ io.on('connection', (socket) => {
         attackedPlayers: attackedPlayers
       });
       
-      // Формируем актуальное состояние игрока
-      let playerWithWeapon;
-      if (player.weapon && player.weapon.durability > 0) {
-        playerWithWeapon = {
-          id: player.id,
-          x: player.x,
-          y: player.y,
-          color: player.color,
-          name: player.name,
-          rotation: player.rotation,
-          health: player.health,
-          maxHealth: player.maxHealth,
-          isDead: player.isDead,
-          weapon: player.weapon
-        };
-      } else {
-        playerWithWeapon = {
-          id: player.id,
-          x: player.x,
-          y: player.y,
-          color: player.color,
-          name: player.name,
-          rotation: player.rotation,
-          health: player.health,
-          maxHealth: player.maxHealth,
-          isDead: player.isDead
-        };
-      }
-      // ВСЕГДА отправляем обновлённого игрока всем
-      io.emit('playerUpdated', {
-        playerId: socket.id,
-        player: playerWithWeapon
-      });
+      // Уменьшаем прочность оружия при любой атаке
+      if (player.weapon && typeof player.weapon.durability === 'number') {
+        console.log(`Уменьшаем durability оружия ${player.weapon.type} с ${player.weapon.durability} до ${player.weapon.durability - 1}`);
+        player.weapon.durability--;
 
-      // Если оружие сломалось, убираем его и отправляем событие
-      if (!player.weapon || player.weapon.durability <= 0) {
-        delete player.weapon;
-        io.emit('weaponBroken', {
+        let playerWithWeapon;
+        if (player.weapon && player.weapon.durability > 0) {
+          playerWithWeapon = {
+            id: player.id,
+            x: player.x,
+            y: player.y,
+            color: player.color,
+            name: player.name,
+            rotation: player.rotation,
+            health: player.health,
+            maxHealth: player.maxHealth,
+            isDead: player.isDead,
+            weapon: player.weapon,
+            speed: calculatePlayerSpeed(player)
+          };
+        } else {
+          playerWithWeapon = {
+            id: player.id,
+            x: player.x,
+            y: player.y,
+            color: player.color,
+            name: player.name,
+            rotation: player.rotation,
+            health: player.health,
+            maxHealth: player.maxHealth,
+            isDead: player.isDead,
+            speed: calculatePlayerSpeed(player)
+          };
+        }
+
+        io.emit('playerUpdated', {
           playerId: socket.id,
           player: playerWithWeapon
         });
+
+        if (!player.weapon || player.weapon.durability <= 0) {
+          console.log(`Оружие ${player.weapon?.type} сломалось!`);
+          delete player.weapon;
+          
+          // Обновляем скорость после поломки оружия
+          const playerWithoutWeapon = {
+            id: player.id,
+            x: player.x,
+            y: player.y,
+            color: player.color,
+            name: player.name,
+            rotation: player.rotation,
+            health: player.health,
+            maxHealth: player.maxHealth,
+            isDead: player.isDead,
+            speed: calculatePlayerSpeed(player)
+          };
+          
+          io.emit('weaponBroken', {
+            playerId: socket.id,
+            player: playerWithoutWeapon
+          });
+          
+          // Также отправляем обновление игрока
+          io.emit('playerUpdated', {
+            playerId: socket.id,
+            player: playerWithoutWeapon
+          });
+        }
       }
     }
   });

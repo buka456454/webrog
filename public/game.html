@@ -168,6 +168,57 @@
             min-height: 20px;
         }
         
+        .respawn-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .respawn-content {
+            background: #1a1a1a;
+            border: 2px solid #ff4444;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+        
+        .respawn-content h2 {
+            margin: 0 0 15px 0;
+            color: #ff4444;
+            font-size: 24px;
+        }
+        
+        .respawn-content p {
+            margin: 0 0 20px 0;
+            color: #ccc;
+            font-size: 16px;
+        }
+        
+        .respawn-button {
+            padding: 12px 24px;
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        
+        .respawn-button:hover {
+            background: #cc3333;
+        }
+        
         .leaderboard {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #333;
@@ -235,12 +286,22 @@
         </div>
     </div>
 
+    <div id="respawnModal" class="respawn-modal">
+        <div class="respawn-content">
+            <h2>💀 Вы погибли!</h2>
+            <p>Нажмите кнопку ниже, чтобы возродиться</p>
+            <button class="respawn-button" onclick="respawnPlayer()">Возродиться</button>
+        </div>
+    </div>
+
     <div class="game-container" id="gameContainer" style="display: none;">
         <div class="game-area">
             <div class="controls">
                 <h3>🎮 WebRog Multiplayer Game</h3>
                 <p>⌨️ Use WASD keys to move your character</p>
+                <p>⚡ Press SHIFT to dash towards mouse cursor</p>
                 <p>⚔️ Press E to pick up weapons</p>
+                <p>🗑️ Press Q to drop weapon</p>
                 <p>🗡️ Press LEFT CLICK to attack with weapon</p>
                 <p>💬 Use the chat to communicate with other players</p>
                 <p>👥 <span id="playerCount">0</span> player(s) online</p>
@@ -276,6 +337,35 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
+        // Глобальные функции для возрождения
+        function respawnPlayer() {
+            console.log('Кнопка возрождения нажата');
+            if (socket) {
+                console.log('Отправляем событие playerRespawn');
+                socket.emit('playerRespawn');
+                hideRespawnModal();
+            } else {
+                console.log('Socket не найден!');
+            }
+        }
+        
+        function showRespawnModal() {
+            console.log('Показываем модалку возрождения');
+            if (respawnModal) {
+                respawnModal.style.display = 'flex';
+                console.log('Модалка отображена:', respawnModal.style.display);
+            } else {
+                console.log('Модалка не найдена!');
+            }
+        }
+        
+        function hideRespawnModal() {
+            console.log('Скрываем модалку возрождения');
+            if (respawnModal) {
+                respawnModal.style.display = 'none';
+            }
+        }
+        
         let socket = null;
         const gameCanvas = document.getElementById('gameCanvas');
         const minimapCanvas = document.getElementById('minimapCanvas');
@@ -286,6 +376,8 @@
         const gameContainer = document.getElementById('gameContainer');
         const nicknameInput = document.getElementById('nicknameInput');
         const nicknameError = document.getElementById('nicknameError');
+        const respawnModal = document.getElementById('respawnModal');
+        console.log('Модалка возрождения найдена:', !!respawnModal);
         
         let players = [];
         let currentPlayerId = '';
@@ -297,12 +389,22 @@
         let mapHeight = 1500;
         
         let keys = {};
-        let moveSpeed = 3;
+        let moveSpeed = 2; // Базовая скорость, будет обновляться сервером
         let moveInterval;
         let mouseX = 0;
         let mouseY = 0;
         let attackCooldown = false;
         const attackCooldownTime = 500;
+        
+        // Система рывков
+        let dashCooldown = false;
+        let dashCooldownTime = 2000; // 2 секунды КД
+        let dashDistance = 80; // дистанция рывка (уменьшена)
+        let dashSpeed = 7; // скорость рывка (ещё меньше)
+        let dashStartTime = 0;
+        let isDashing = false;
+        let dashTargetX = 0;
+        let dashTargetY = 0;
         
         // Анимация удара
         let attackAnimation = {
@@ -508,6 +610,12 @@
                 
                 // Проставляем кд для оружия на карте
                 weapons.forEach(w => { w.cooldown = getWeaponCooldown(w.type); applySettingsToWeapon(w); });
+                
+                // Устанавливаем начальную скорость для текущего игрока
+                const me = players.find(p => p.id === currentPlayerId);
+                if (me && typeof me.speed === 'number') {
+                    moveSpeed = me.speed;
+                }
             });
             
             socket.on('nicknameError', (error) => {
@@ -527,6 +635,18 @@
             socket.on('playerMoved', (data) => {
                 const player = players.find(p => p.id === data.id);
                 if (player) {
+                    // Проверяем, не застрял ли игрок во время рывка
+                    if (data.id === currentPlayerId && isDashing) {
+                        const dx = data.x - player.x;
+                        const dy = data.y - player.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Если игрок не сдвинулся или сдвинулся очень мало, значит рывок заблокирован
+                        if (distance < 2) {
+                            isDashing = false; // Прерываем рывок
+                        }
+                    }
+                    
                     player.x = data.x;
                     player.y = data.y;
                 }
@@ -546,7 +666,7 @@
             socket.on('weaponAttack', (data) => {
                 // Создаем частицы для атаки других игроков
                 const attacker = players.find(p => p.id === data.attackerId);
-                if (attacker) {
+                if (attacker && attacker.id !== currentPlayerId) {
                     createAttackParticles(attacker.x, attacker.y, attacker.rotation || 0);
                     // Запускаем анимацию удара для атакующего игрока
                     playerAttackAnimations.set(data.attackerId, {
@@ -565,9 +685,24 @@
                 }
             });
             
-            socket.on('playerDied', (data) => {
-                addChatMessage('System', data.message);
-            });
+                    socket.on('playerDied', (data) => {
+            console.log('Получено событие playerDied:', data);
+            addChatMessage('System', data.message);
+            
+            // Если умер текущий игрок, показываем модалку возрождения
+            if (data.playerId === currentPlayerId) {
+                console.log('Показываем модалку возрождения для текущего игрока');
+                showRespawnModal();
+            }
+            
+            // Обновляем состояние умершего игрока
+            const playerIndex = players.findIndex(p => p.id === data.playerId);
+            if (playerIndex !== -1) {
+                players[playerIndex].isDead = true;
+                players[playerIndex].health = 0;
+                console.log('Игрок помечен как мертвый:', players[playerIndex]);
+            }
+        });
             
             socket.on('weaponSpawned', (weapon) => {
                 applySettingsToWeapon(weapon);
@@ -588,6 +723,30 @@
                     data.player.weapon.cooldown = getWeaponCooldown(data.player.weapon.type);
                     applySettingsToWeapon(data.player.weapon);
                 }
+                // Обновляем скорость для текущего игрока
+                if (data.playerId === currentPlayerId && data.player && typeof data.player.speed === 'number') {
+                    moveSpeed = data.player.speed;
+                }
+            });
+            
+            socket.on('weaponDropped', (data) => {
+                // Добавляем выброшенное оружие на карту
+                if (data.weapon) {
+                    applySettingsToWeapon(data.weapon);
+                    weapons.push(data.weapon);
+                }
+                
+                // Обновляем данные игрока без оружия
+                const playerIndex = players.findIndex(p => p.id === data.playerId);
+                if (playerIndex !== -1 && data.player) {
+                    const oldPlayer = players[playerIndex];
+                    players[playerIndex] = { ...oldPlayer, ...data.player };
+                }
+                
+                // Обновляем скорость для текущего игрока
+                if (data.playerId === currentPlayerId && data.player && typeof data.player.speed === 'number') {
+                    moveSpeed = data.player.speed;
+                }
             });
             
             socket.on('weaponBroken', (data) => {
@@ -597,6 +756,10 @@
                     players[playerIndex] = { ...players[playerIndex], ...data.player };
                     delete players[playerIndex].weapon;
                 }
+                // Обновляем скорость для текущего игрока
+                if (data.playerId === currentPlayerId && data.player && typeof data.player.speed === 'number') {
+                    moveSpeed = data.player.speed;
+                }
             });
             
             socket.on('playerUpdated', (data) => {
@@ -605,6 +768,37 @@
                     const me = players.find(p => p.id === currentPlayerId);
                     console.clear();
                     console.log('DURABILITY:', me && me.weapon ? me.weapon.durability : 'нет меча');
+                    // Обновляем скорость движения для текущего игрока
+                    if (me && typeof me.speed === 'number') {
+                        moveSpeed = me.speed;
+                    }
+                }
+            });
+            
+            socket.on('playerDashed', (data) => {
+                // Создаем эффект рывка для других игроков
+                const player = players.find(p => p.id === data.id);
+                if (player && data.id !== currentPlayerId) {
+                    createDashEffect(data.x, data.y);
+                }
+            });
+            
+            socket.on('playerRespawned', (data) => {
+                console.log('Получено событие playerRespawned:', data);
+                // Обновляем данные возродившегося игрока
+                const playerIndex = players.findIndex(p => p.id === data.playerId);
+                if (playerIndex !== -1 && data.player) {
+                    players[playerIndex] = { ...players[playerIndex], ...data.player };
+                    console.log('Игрок обновлен:', players[playerIndex]);
+                }
+                
+                // Если это текущий игрок, скрываем модалку и обновляем скорость
+                if (data.playerId === currentPlayerId) {
+                    console.log('Скрываем модалку возрождения');
+                    hideRespawnModal();
+                    if (data.player && typeof data.player.speed === 'number') {
+                        moveSpeed = data.player.speed;
+                    }
                 }
             });
             
@@ -618,10 +812,49 @@
             document.addEventListener('keydown', (e) => {
                 keys[e.key.toLowerCase()] = true;
                 
+                // Рывок по Shift
+                if (e.key === 'Shift' && !dashCooldown && !isDashing) {
+                    const currentPlayer = players.find(p => p.id === currentPlayerId);
+                    if (currentPlayer && !currentPlayer.isDead) {
+                        // Вычисляем направление рывка (к курсору мыши)
+                        const dx = mouseX - (currentPlayer.x - camX);
+                        const dy = mouseY - (currentPlayer.y - camY);
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance > 0) {
+                            // Нормализуем вектор и умножаем на дистанцию рывка
+                            const normalizedDx = (dx / distance) * dashDistance;
+                            const normalizedDy = (dy / distance) * dashDistance;
+                            
+                            dashTargetX = currentPlayer.x + normalizedDx;
+                            dashTargetY = currentPlayer.y + normalizedDy;
+                            
+                            // Ограничиваем рывок границами карты
+                            dashTargetX = Math.max(25, Math.min(dashTargetX, mapWidth - 25));
+                            dashTargetY = Math.max(25, Math.min(dashTargetY, mapHeight - 25));
+                            
+                            isDashing = true;
+                            dashCooldown = true;
+                            dashStartTime = Date.now(); // Запускаем КД сразу
+                            
+                            // Создаем эффект рывка
+                            createDashEffect(currentPlayer.x, currentPlayer.y);
+                            
+                            // Уведомляем сервер о рывке
+                            socket.emit('playerDash', {
+                                x: currentPlayer.x,
+                                y: currentPlayer.y,
+                                targetX: dashTargetX,
+                                targetY: dashTargetY
+                            });
+                        }
+                    }
+                }
+                
                 // Weapon pickup
                 if (e.key === 'e' || e.key === 'E') {
                     const currentPlayer = players.find(p => p.id === currentPlayerId);
-                    if (currentPlayer) {
+                    if (currentPlayer && !currentPlayer.isDead) {
                         weapons.forEach(weapon => {
                             const distance = Math.sqrt(
                                 Math.pow(currentPlayer.x - weapon.x, 2) + Math.pow(currentPlayer.y - weapon.y, 2)
@@ -630,6 +863,14 @@
                                 socket.emit('pickupWeapon', weapon.id);
                             }
                         });
+                    }
+                }
+                
+                // Weapon drop
+                if (e.key === 'q' || e.key === 'Q') {
+                    const currentPlayer = players.find(p => p.id === currentPlayerId);
+                    if (currentPlayer && currentPlayer.weapon && !currentPlayer.isDead) {
+                        socket.emit('dropWeapon');
                     }
                 }
             });
@@ -647,10 +888,10 @@
             
             gameCanvas.addEventListener('click', () => {
                 const currentPlayer = players.find(p => p.id === currentPlayerId);
-                if (!currentPlayer || !currentPlayer.weapon) return;
+                if (!currentPlayer || !currentPlayer.weapon || currentPlayer.isDead) return;
                 const now = Date.now();
                 const weaponCooldown = currentPlayer.weapon.cooldown || getWeaponCooldown(currentPlayer.weapon.type);
-                if (now < nextAttackTime) return; // кд не прошло
+                if (now < nextAttackTime || attackCooldown) return; // кд не прошло или уже атакуем
                 nextAttackTime = now + weaponCooldown;
                 attackCooldown = true;
                 
@@ -660,7 +901,7 @@
                 attackAnimation.angle = currentPlayer.rotation || 0;
                 attackAnimation.swingDirection = Math.random() > 0.5 ? 1 : -1;
                 
-                // Создаем частицы удара
+                // Создаем частицы удара только при начале анимации
                 createAttackParticles(currentPlayer.x, currentPlayer.y, currentPlayer.rotation || 0);
                 
                 // Добавляем экранную тряску для эффекта
@@ -669,6 +910,7 @@
                     gameCanvas.style.transform = 'translate(0px, 0px)';
                 }, 50);
                 
+                console.log('Отправляем weaponAttack, durability:', currentPlayer.weapon.durability);
                 socket.emit('weaponAttack');
                 setTimeout(() => {
                     attackCooldown = false;
@@ -691,25 +933,52 @@
             const currentPlayer = players.find(p => p.id === currentPlayerId);
             if (!currentPlayer) return;
             
+            // Если игрок мертв, не обрабатываем движение
+            if (currentPlayer.isDead) return;
+            
             let moved = false;
             let newX = currentPlayer.x;
             let newY = currentPlayer.y;
             
-            if (keys['w'] || keys['arrowup']) {
-                newY -= moveSpeed;
-                moved = true;
-            }
-            if (keys['s'] || keys['arrowdown']) {
-                newY += moveSpeed;
-                moved = true;
-            }
-            if (keys['a'] || keys['arrowleft']) {
-                newX -= moveSpeed;
-                moved = true;
-            }
-            if (keys['d'] || keys['arrowright']) {
-                newX += moveSpeed;
-                moved = true;
+            // Обработка рывка
+            if (isDashing) {
+                const dx = dashTargetX - currentPlayer.x;
+                const dy = dashTargetY - currentPlayer.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 5) {
+                    // Продолжаем рывок
+                    const normalizedDx = (dx / distance) * dashSpeed;
+                    const normalizedDy = (dy / distance) * dashSpeed;
+                    
+                    newX = currentPlayer.x + normalizedDx;
+                    newY = currentPlayer.y + normalizedDy;
+                    moved = true;
+                } else {
+                    // Рывок завершен
+                    isDashing = false;
+                    newX = dashTargetX;
+                    newY = dashTargetY;
+                    moved = true;
+                }
+            } else {
+                // Обычное движение
+                if (keys['w'] || keys['arrowup']) {
+                    newY -= moveSpeed;
+                    moved = true;
+                }
+                if (keys['s'] || keys['arrowdown']) {
+                    newY += moveSpeed;
+                    moved = true;
+                }
+                if (keys['a'] || keys['arrowleft']) {
+                    newX -= moveSpeed;
+                    moved = true;
+                }
+                if (keys['d'] || keys['arrowright']) {
+                    newX += moveSpeed;
+                    moved = true;
+                }
             }
             
             if (moved) {
@@ -740,6 +1009,14 @@
             
             // Обновляем частицы
             updateParticles();
+            
+            // Обновляем время КД рывка
+            if (dashCooldown) {
+                const elapsed = Date.now() - dashStartTime;
+                if (elapsed >= dashCooldownTime) {
+                    dashCooldown = false;
+                }
+            }
             
             // Update player count
             playerCount.textContent = players.length;
@@ -783,15 +1060,19 @@
                 if (isCurrentPlayer && player.weapon) {
                     const range = player.weapon.range || 80;
                     const angle = player.rotation || 0;
-                    // Смещаем радиус строго вперёд по направлению взгляда
-                    const cx = player.x - camX + Math.cos(angle - Math.PI/2) * (range / 2);
-                    const cy = player.y - camY + Math.sin(angle - Math.PI/2) * (range / 2);
+                    
                     gameCtx.save();
                     gameCtx.globalAlpha = 0.15;
+                    
+                    // Рисуем сектор атаки (90 градусов)
                     gameCtx.beginPath();
-                    gameCtx.arc(cx, cy, range, 0, 2 * Math.PI);
+                    gameCtx.moveTo(player.x - camX, player.y - camY);
+                    const sectorAngle = angle - Math.PI / 2;
+                    gameCtx.arc(player.x - camX, player.y - camY, range, sectorAngle - Math.PI/4, sectorAngle + Math.PI/4);
+                    gameCtx.closePath();
                     gameCtx.fillStyle = '#1a1a1a';
                     gameCtx.fill();
+                    
                     gameCtx.restore();
                 }
             });
@@ -855,8 +1136,8 @@
                 gameCtx.ellipse(0, 8, 12, 5, 0, 0, 2 * Math.PI);
                 gameCtx.fill();
                 gameCtx.restore();
-                // Свечение вокруг текущего игрока
-                if (isCurrentPlayer) {
+                // Свечение вокруг текущего игрока (не показываем для умерших)
+                if (isCurrentPlayer && !player.isDead) {
                     gameCtx.save();
                     gameCtx.shadowColor = '#00f0ff';
                     gameCtx.shadowBlur = 18;
@@ -870,14 +1151,29 @@
                 // Тело
                 gameCtx.beginPath();
                 gameCtx.arc(0, 0, 10, 0, 2 * Math.PI);
-                gameCtx.fillStyle = player.color;
+                // Цвет игрока (серый если мертв)
+                if (player.isDead) {
+                    gameCtx.fillStyle = '#666666';
+                    gameCtx.globalAlpha = 0.7;
+                } else {
+                    gameCtx.fillStyle = player.color;
+                }
                 gameCtx.fill();
                 // Бордер
-                gameCtx.strokeStyle = isCurrentPlayer ? '#ffffff' : '#333';
-                gameCtx.lineWidth = isCurrentPlayer ? 3 : 1;
+                if (player.isDead) {
+                    gameCtx.strokeStyle = '#666666';
+                    gameCtx.lineWidth = 1;
+                } else {
+                    gameCtx.strokeStyle = isCurrentPlayer ? '#ffffff' : '#333';
+                    gameCtx.lineWidth = isCurrentPlayer ? 3 : 1;
+                }
                 gameCtx.stroke();
                 // Глаза
-                gameCtx.fillStyle = '#ffffff';
+                if (player.isDead) {
+                    gameCtx.fillStyle = '#333333';
+                } else {
+                    gameCtx.fillStyle = '#ffffff';
+                }
                 gameCtx.beginPath();
                 gameCtx.arc(-4, -3, 2, 0, 2 * Math.PI);
                 gameCtx.fill();
@@ -885,28 +1181,23 @@
                 gameCtx.arc(4, -3, 2, 0, 2 * Math.PI);
                 gameCtx.fill();
                 
-                // Оружие в руках
-                if (player.weapon) {
+                // Оружие в руках (не показываем для умерших)
+                if (player.weapon && !player.isDead) {
                     gameCtx.save();
                     gameCtx.translate(0, -12);
                     let w = player.weapon;
                     let weaponRotation = 0;
-                    let isAttacking = false;
-                    if (isCurrentPlayer && attackAnimation.isActive) {
+                    if (isCurrentPlayer && attackAnimation.isActive && !player.isDead) {
                         const elapsed = Date.now() - attackAnimation.startTime;
                         const progress = elapsed / attackAnimation.duration;
-                        const swingAngle = Math.sin(progress * Math.PI) * 0.5 * attackAnimation.swingDirection;
-                        weaponRotation += swingAngle;
-                        isAttacking = true;
-                    } else if (playerAttackAnimations.has(player.id)) {
+                        weaponRotation = Math.sin(progress * Math.PI) * 0.5 * attackAnimation.swingDirection;
+                    } else if (playerAttackAnimations.has(player.id) && !player.isDead) {
                         const animation = playerAttackAnimations.get(player.id);
                         const elapsed = Date.now() - animation.startTime;
                         const progress = elapsed / animation.duration;
-                        const swingAngle = Math.sin(progress * Math.PI) * 0.5 * animation.swingDirection;
-                        weaponRotation += swingAngle;
-                        isAttacking = true;
+                        weaponRotation = Math.sin(progress * Math.PI) * 0.5 * animation.swingDirection;
                     }
-                    if (isAttacking) {
+                    if (isCurrentPlayer && attackAnimation.isActive && !player.isDead) {
                         gameCtx.shadowColor = '#FF4500';
                         gameCtx.shadowBlur = 15;
                     }
@@ -946,11 +1237,19 @@
                 // Заполнение полоски здоровья
                 const healthPercentage = (player.health || 10) / (player.maxHealth || 10);
                 const healthFillWidth = healthBarWidth * healthPercentage;
-                gameCtx.fillStyle = healthPercentage > 0.5 ? '#00ff00' : healthPercentage > 0.25 ? '#ffff00' : '#ff0000';
-                gameCtx.fillRect(px - healthBarWidth/2, healthBarY, healthFillWidth, healthBarHeight);
+                
+                // Для умерших игроков не показываем заполнение хпбара
+                if (!player.isDead) {
+                    gameCtx.fillStyle = healthPercentage > 0.5 ? '#00ff00' : healthPercentage > 0.25 ? '#ffff00' : '#ff0000';
+                    gameCtx.fillRect(px - healthBarWidth/2, healthBarY, healthFillWidth, healthBarHeight);
+                }
                 
                 // Граница полоски здоровья
-                gameCtx.strokeStyle = '#ffffff';
+                if (player.isDead) {
+                    gameCtx.strokeStyle = '#666666';
+                } else {
+                    gameCtx.strokeStyle = '#ffffff';
+                }
                 gameCtx.lineWidth = 1;
                 gameCtx.strokeRect(px - healthBarWidth/2, healthBarY, healthBarWidth, healthBarHeight);
                 
@@ -958,14 +1257,24 @@
                 gameCtx.fillStyle = '#ffffff';
                 gameCtx.font = '10px Arial';
                 gameCtx.textAlign = 'center';
-                gameCtx.fillText(`${player.health || 10}/${player.maxHealth || 10}`, px, healthBarY - 5);
+                if (player.isDead) {
+                    gameCtx.fillStyle = '#ff4444';
+                    gameCtx.fillText('МЕРТВ', px, healthBarY - 5);
+                } else {
+                    gameCtx.fillText(`${player.health || 10}/${player.maxHealth || 10}`, px, healthBarY - 5);
+                }
                 // Fade для имени (имя появляется плавно, если игрок на экране)
                 let nameAlpha = 1.0;
                 if (px < 0 || px > 800 || py < 0 || py > 600) nameAlpha = 0;
                 else if (px < 40 || px > 760 || py < 30 || py > 570) nameAlpha = 0.3;
                 gameCtx.save();
                 gameCtx.globalAlpha = nameAlpha;
-                gameCtx.fillStyle = '#ffffff';
+                if (player.isDead) {
+                    gameCtx.fillStyle = '#666666';
+                    gameCtx.globalAlpha = nameAlpha * 0.7;
+                } else {
+                    gameCtx.fillStyle = '#ffffff';
+                }
                 gameCtx.font = '12px Arial';
                 gameCtx.textAlign = 'center';
                 gameCtx.fillText(player.name, px, py - 20);
@@ -973,7 +1282,7 @@
                 gameCtx.restore();
                 
                 // Полоска кд (cooldown bar)
-                if (isCurrentPlayer && player.weapon && nextAttackTime > Date.now()) {
+                if (isCurrentPlayer && player.weapon && nextAttackTime > Date.now() && !player.isDead) {
                     const cdBarWidth = 30;
                     const cdBarHeight = 4;
                     const cdBarY = py - 28;
@@ -998,6 +1307,8 @@
             // Миникарта
             renderMinimap();
             renderInventory();
+            renderDashCooldown();
+            renderPlayerSpeed();
             requestAnimationFrame(renderGame);
         }
         
@@ -1035,7 +1346,12 @@
             
             // Draw players on minimap
             players.forEach(player => {
-                minimapCtx.fillStyle = player.id === currentPlayerId ? '#ffffff' : player.color;
+                if (player.isDead) {
+                    minimapCtx.fillStyle = '#666666';
+                    minimapCtx.globalAlpha = 0.5;
+                } else {
+                    minimapCtx.fillStyle = player.id === currentPlayerId ? '#ffffff' : player.color;
+                }
                 minimapCtx.beginPath();
                 minimapCtx.arc(
                     player.x * scaleX,
@@ -1045,6 +1361,7 @@
                     2 * Math.PI
                 );
                 minimapCtx.fill();
+                minimapCtx.globalAlpha = 1.0;
             });
         }
         
@@ -1074,6 +1391,27 @@
                     maxLife: life,
                     color: `hsl(${Math.random() * 60 + 15}, 100%, 50%)`,
                     size: 2 + Math.random() * 3
+                });
+            }
+        }
+        
+        function createDashEffect(x, y) {
+            // Создаем эффект рывка - частицы в форме следа
+            const particleCount = 15;
+            for (let i = 0; i < particleCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1 + Math.random() * 2;
+                const life = 30 + Math.random() * 20;
+
+                particles.push({
+                    x: x + (Math.random() - 0.5) * 20,
+                    y: y + (Math.random() - 0.5) * 20,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: life,
+                    maxLife: life,
+                    color: `hsl(${200 + Math.random() * 40}, 100%, 70%)`,
+                    size: 3 + Math.random() * 4
                 });
             }
         }
@@ -1155,7 +1493,17 @@
         function addChatMessage(sender, message) {
             const messageDiv = document.createElement('div');
             messageDiv.style.marginBottom = '5px';
-            messageDiv.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            
+            // Специальные стили для системных сообщений
+            if (sender === 'System') {
+                messageDiv.style.fontSize = '11px';
+                messageDiv.style.color = '#666';
+                messageDiv.style.fontStyle = 'italic';
+                messageDiv.innerHTML = `${message}`;
+            } else {
+                messageDiv.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            }
+            
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -1163,6 +1511,23 @@
         function renderInventory() {
             const currentPlayer = players.find(p => p.id === currentPlayerId);
             if (!currentPlayer) return;
+            
+            // Если игрок мертв, показываем сообщение о смерти
+            if (currentPlayer.isDead) {
+                const invX = 800 - 80;
+                const invY = 600 - 80;
+                gameCtx.save();
+                gameCtx.globalAlpha = 0.7;
+                gameCtx.fillStyle = '#222';
+                gameCtx.fillRect(invX, invY, 64, 64);
+                gameCtx.globalAlpha = 1.0;
+                gameCtx.fillStyle = '#ff4444';
+                gameCtx.font = 'bold 12px Arial';
+                gameCtx.textAlign = 'center';
+                gameCtx.fillText('МЕРТВ', invX + 32, invY + 32);
+                gameCtx.restore();
+                return;
+            }
             // Координаты инвентаря (правый нижний угол)
             const invX = 800 - 80;
             const invY = 600 - 80;
@@ -1204,13 +1569,17 @@
                 gameCtx.font = 'bold 12px Arial';
                 gameCtx.textAlign = 'center';
                 gameCtx.fillText(w.name, invX + 32, invY + 16);
+                // Урон
+                gameCtx.fillStyle = '#fff';
+                gameCtx.font = 'bold 12px Arial';
+                gameCtx.fillText(`Урон: ${w.damage}`, invX + 32, invY + 30);
+                // Вес
+                gameCtx.fillStyle = '#ffaa00';
+                gameCtx.font = 'bold 12px Arial';
+                gameCtx.fillText(`Вес: ${w.weight}`, invX + 32, invY + 44);
                 // Прочность
                 gameCtx.fillStyle = '#fff';
                 gameCtx.font = 'bold 14px Arial';
-                gameCtx.fillText(`Урон: ${w.damage}`, invX + 32, invY + 30);
-                // Прочность
-                gameCtx.fillStyle = '#fff';
-                gameCtx.font = 'bold 16px Arial';
                 gameCtx.fillText(`${w.durability}/${w.type === 'knife' ? 2 : w.type === 'greatsword' ? 5 : 3}`, invX + 32, invY + 60);
             } else {
                 gameCtx.fillStyle = '#888';
@@ -1221,12 +1590,110 @@
             gameCtx.restore();
         }
         
+        function renderPlayerSpeed() {
+            const currentPlayer = players.find(p => p.id === currentPlayerId);
+            if (!currentPlayer || currentPlayer.isDead) return;
+            
+            // Координаты скорости (левый верхний угол, под КД рывка)
+            const speedX = 20;
+            const speedY = 80;
+            const width = 120;
+            const height = 30;
+            
+            gameCtx.save();
+            
+            // Фон
+            gameCtx.globalAlpha = 0.8;
+            gameCtx.fillStyle = '#222';
+            gameCtx.fillRect(speedX, speedY, width, height);
+            gameCtx.globalAlpha = 1.0;
+            
+            // Рамка
+            gameCtx.strokeStyle = '#00ff00';
+            gameCtx.lineWidth = 1;
+            gameCtx.strokeRect(speedX, speedY, width, height);
+            
+            // Текст скорости
+            gameCtx.fillStyle = '#00ff00';
+            gameCtx.font = 'bold 12px Arial';
+            gameCtx.textAlign = 'left';
+            gameCtx.fillText(`Скорость: ${moveSpeed.toFixed(1)}`, speedX + 5, speedY + 20);
+            
+            gameCtx.restore();
+        }
+        
+        function renderDashCooldown() {
+            const currentPlayer = players.find(p => p.id === currentPlayerId);
+            if (!currentPlayer || currentPlayer.isDead) return;
+            
+            // Координаты КД рывка (левый верхний угол)
+            const cooldownX = 20;
+            const cooldownY = 20;
+            const size = 50;
+            
+            gameCtx.save();
+            
+            // Фон
+            gameCtx.globalAlpha = 0.8;
+            gameCtx.fillStyle = '#222';
+            gameCtx.fillRect(cooldownX, cooldownY, size, size);
+            gameCtx.globalAlpha = 1.0;
+            
+            // Рамка
+            if (isDashing) {
+                gameCtx.strokeStyle = '#ffff00';
+            } else {
+                gameCtx.strokeStyle = dashCooldown ? '#666' : '#00bfff';
+            }
+            gameCtx.lineWidth = 2;
+            gameCtx.strokeRect(cooldownX, cooldownY, size, size);
+            
+            // Иконка рывка
+            if (isDashing) {
+                gameCtx.fillStyle = '#ffff00';
+                gameCtx.font = 'bold 20px Arial';
+                gameCtx.textAlign = 'center';
+                gameCtx.fillText('⚡', cooldownX + size/2, cooldownY + size/2 + 5);
+            } else {
+                gameCtx.fillStyle = dashCooldown ? '#666' : '#00bfff';
+                gameCtx.font = 'bold 20px Arial';
+                gameCtx.textAlign = 'center';
+                gameCtx.fillText('⚡', cooldownX + size/2, cooldownY + size/2 + 5);
+            }
+            
+            // Прогресс КД
+            if (dashCooldown && !isDashing) {
+                const elapsed = Date.now() - dashStartTime;
+                const progress = Math.min(elapsed / dashCooldownTime, 1);
+                
+                gameCtx.fillStyle = '#00bfff';
+                gameCtx.globalAlpha = 0.3;
+                gameCtx.fillRect(cooldownX, cooldownY + size * (1 - progress), size, size * progress);
+                gameCtx.globalAlpha = 1.0;
+                
+                // Время до готовности
+                const remaining = Math.ceil((dashCooldownTime - elapsed) / 1000);
+                gameCtx.fillStyle = '#fff';
+                gameCtx.font = 'bold 12px Arial';
+                gameCtx.fillText(`${remaining}s`, cooldownX + size/2, cooldownY + size + 15);
+            }
+            
+            gameCtx.restore();
+        }
+        
         // Allow Enter key to join game
         nicknameInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 joinGame();
             }
         });
+        
+        // Делаем функции доступными глобально
+        window.respawnPlayer = respawnPlayer;
+        window.showRespawnModal = showRespawnModal;
+        window.hideRespawnModal = hideRespawnModal;
+        
+
     </script>
 </body>
 </html> 
