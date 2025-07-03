@@ -1,0 +1,12 @@
+{
+  "name": "webrog-multiplayer-game",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "server": "node simple-server.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.7.4",
+    "socket.io-client": "^4.7.4"
+  }
+}
